@@ -11,6 +11,7 @@ async def main():
     conn_task = asyncio.create_task(sock.connect(playid, 'localhost', conn_port))
     await conn_task
     await listen_task
+    print("returned from both conn and listen tasks!")
 
 
 if __name__ == "__main__":

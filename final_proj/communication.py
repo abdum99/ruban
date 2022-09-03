@@ -5,6 +5,7 @@ from abc import ABCMeta, abstractmethod
 from multiprocessing.connection import Client, Listener
 from typing import Dict, Tuple
 import asyncio
+import logging as log
 
 from django.dispatch import receiver
 
@@ -17,15 +18,15 @@ class Communication(metaclass=ABCMeta):
         pass
 
     @abstractmethod
+    def listen(self) -> None:
+        pass
+
+    @abstractmethod
     def send(self, id, message) -> None:
         pass
 
     @abstractmethod
-    def on_recv(self) -> None:
-        pass
-
-    @abstractmethod
-    def listen(self) -> None:
+    def recv(self) -> None:
         pass
 
     @abstractmethod
@@ -65,14 +66,15 @@ class ASYNCSocket(Communication):
         # holds tuples of (reader, writer)
         self.connections: Dict[int, Tuple[asyncio.StreamReader, asyncio.StreamWriter]] = {} 
     
-    def on_recv(self) -> None:
-        pass
-    
     # Open connection to port and add (id, port) to connections mappings
     # Should probably change this to only take host, port and have 
     # <handle_conn> return id which connect can just verify
     async def connect(self, id, host, port) -> None:
-        print("connecting to", id, "on", host, ":", port)
+        if id in self.connections: # check that a connection wasn't already established with this id
+            log.error(self.playid, "is already connected to", id)
+            return
+
+        log.info("connecting to", id, "on", host, ":", port)
         reader, writer = await asyncio.open_connection(host, port)
         writer.write(str(self.playid).encode())
         await writer.drain()
@@ -80,13 +82,12 @@ class ASYNCSocket(Communication):
         # check if success
         data = await reader.readline()
         response = data.decode()
-        print("received response:", response)
-        print("HOOORRRAAAAAAYYYYY!")
+        log.info("received response:", response)
+        if response == "success":
+            self.connections[id] = (reader, writer)
+            log.info("Added", id, "to connections")
 
 
-    async def send(self, id, message) -> None:
-        pass
-    
     async def handle_conn(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         message = (await reader.read(255)).decode()
         print("server received connection request:", message)
@@ -106,6 +107,29 @@ class ASYNCSocket(Communication):
         server = await asyncio.start_server(self.handle_conn, 'localhost', self.listen_port)
         async with server:
             await server.serve_forever()
+
+
+    async def read(self, id) -> str:
+        data = await self.connections[id][0].readline()
+        message = data.decode()
+        if not message:
+            self.close()
+            return ""
+        return message
+
+
+    async def send(self, id, message) -> None:
+        if not id in self.connections:
+            log.error("ID NOT FOUND in connections")
+        
+        writer = self.connections[id][1]
+        writer.write(message.encode())
+        await writer.drain()
+    
+
+
+    async def recv(self) -> None:
+        pass
 
     async def close(self, playid) -> None:
         writer = self.connections[playid][1]
