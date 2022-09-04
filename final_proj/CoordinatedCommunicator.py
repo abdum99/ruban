@@ -15,7 +15,7 @@ class CoordinatedCommunicator:
         self.server = socket.socket()
         addr = ('localhost', id_port_map[own_id])
         self.server.bind(addr)
-        self.server.setblocking(False)
+        self.server.setblocking(True)
 
         for peer_id in sorted(id_port_map.keys()):
             print("own:", own_id)
@@ -73,14 +73,35 @@ class CoordinatedCommunicator:
                 print("Trying again...")
 
     def send(self, peer_id, message) -> None:
-        if peer_id == self.own_id or not peer_id in self.sockets:
-            return
+        if peer_id == self.own_id:
+            print("Can't send to self")
+            return None
+        if not peer_id in self.sockets:
+            print (f"No socket data found for {peer_id}")
+            return None
         self.sockets[peer_id].sendall(message.encode())
 
     def recv(self, peer_id) -> str:
-        if peer_id == self.own_id or not peer_id in self.sockets:
-            print ("returning None")
+        if peer_id == self.own_id:
+            print("Can't receive from self")
+            return None
+        if not peer_id in self.sockets:
+            print (f"No socket data found for {peer_id}")
             return None
 
-        return self.sockets[peer_id].recv(1024).decode()
+        while True:
+            try:
+                return self.sockets[peer_id].recv(1024).decode().strip()
+            except:
+                print("No data. Trying Again in 2 seconds!")
+                sleep(2)
+
+    def flush(self, peer_id) -> None:
+        if peer_id == self.own_id:
+            print("Can't flush self")
+            return None
+        if not peer_id in self.sockets:
+            print (f"No socket data found for {peer_id}")
+            return None
+
 

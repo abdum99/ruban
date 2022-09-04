@@ -14,26 +14,36 @@ def main():
     communicator = CoordinatedCommunicator(own_id, id_port_map)
     turn = 0
     while True:
-        if turn == own_id:
-            user_input = input("<id>,<message>: ")
-            peer_id, message = user_input.split(',')[:2]
-            peer_id = int(peer_id.strip())
-            message = message.strip()
+        if turn == own_id: # my turn
+            valid = False
+            while not valid:
+                try:
+                    user_input = input("<id>,<message>: ")
+                    peer_id, message = user_input.split(',')[:2]
+                    peer_id = int(peer_id.strip())
+                    message = message.strip()
+                    valid = True
+                except:
+                    print("Invalid input. Try Again")
             communicator.send(peer_id, "ACTION: " + message + "\n")
             for peer_id in id_port_map:
                 if peer_id == own_id:
                     continue
                 communicator.send(peer_id, "END\n")
-            turn += 1
-        else:
-            message = communicator.recv(turn)
-            if message.startswith("ACTION:"):
-                print("recv:", message)
+            turn = (turn + 1) % len(id_port_map)
+        else: # someone else's turn
+            while True:
                 message = communicator.recv(turn)
+                print("recv:", message)
+                if "END" in message:
+                    print("GOT END")
+                    break
 
-            print("recv:", message)
-            assert message == "END"
-            turn += 1
+                # handle action
+                if message.startswith("ACTION:"):
+                    print("<action handler> goes here")
+
+            turn = (turn + 1) % len(id_port_map)
 
 if __name__ == '__main__':
     main()
