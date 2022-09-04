@@ -6,8 +6,8 @@ from multiprocessing.connection import Client, Listener
 from typing import Dict, Tuple
 import asyncio
 import logging as log
-
-from django.dispatch import receiver
+import socket
+from time import sleep
 
 class Communication(metaclass=ABCMeta):
     def __init__(self) -> None:
@@ -70,21 +70,26 @@ class ASYNCSocket(Communication):
     # Should probably change this to only take host, port and have 
     # <handle_conn> return id which connect can just verify
     async def connect(self, id, host, port) -> None:
+        print("called connect")
         if id in self.connections: # check that a connection wasn't already established with this id
             log.error(self.playid, "is already connected to", id)
             return
 
         log.info("connecting to", id, "on", host, ":", port)
+        print("connecting...")
         reader, writer = await asyncio.open_connection(host, port)
         writer.write(str(self.playid).encode())
         await writer.drain()
+        print("finished draining writer")
 
         # check if success
         data = await reader.readline()
         response = data.decode()
         log.info("received response:", response)
-        if response == "success":
+        if response.strip() == "success":
             self.connections[id] = (reader, writer)
+            print("success, adding to connections")
+            print(self.connections)
             log.info("Added", id, "to connections")
 
 
@@ -102,21 +107,39 @@ class ASYNCSocket(Communication):
         else:
             print("player already connected:", self.connections[playid])
         print("HOOORRRAAAAAAYYYYY!")
-    
+
+    async def handle_conn(self, client) -> None:
+        message = (await reader.read(255)).decode()
+        print("server received connection request:", message)
+        playid = int(message)
+        print("converted to int:", playid)
+        if not playid in self.connections: # check that a connection wasn't already established with this id
+            print("Was not in connections. Establishing new one")
+            self.connections[playid] = (reader, writer)
+            writer.write("success\n".encode())
+            await writer.drain()
+
+        else:
+            print("player already connected:", self.connections[playid])
+        print("HOOORRRAAAAAAYYYYY!")
+
+    # async def listen(self) -> None:
+    #     server = await asyncio.start_server(self.handle_conn, 'localhost', self.listen_port)
+    #     async with server:
+    #         await server.serve_forever()
+    #         print("serving")
+    #         # await server.start_serving()
+    #     print ("got out of serve loop")
+
     async def listen(self) -> None:
-        server = await asyncio.start_server(self.handle_conn, 'localhost', self.listen_port)
-        async with server:
-            await server.serve_forever()
-
-
-    async def read(self, id) -> str:
-        data = await self.connections[id][0].readline()
-        message = data.decode()
-        if not message:
-            self.close()
-            return ""
-        return message
-
+        server = socket.socket()
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        addr = ('localhost', self.listen_port)
+        server.bind(addr)
+        server.listen(1)
+        client, client_addr = server.accept()
+        print(client)
+        print(client_addr)
 
     async def send(self, id, message) -> None:
         if not id in self.connections:
@@ -125,16 +148,39 @@ class ASYNCSocket(Communication):
         writer = self.connections[id][1]
         writer.write(message.encode())
         await writer.drain()
-    
+        print("drained writer")
 
-
-    async def recv(self) -> None:
-        pass
+    async def recv(self, playid) -> None:
+        data = await self.connections[playid][0].readline()
+        message = data.decode()
+        print ("received msg:", message)
+        # if not message:
+        #     self.close()
+        #     return ""
+        return message
 
     async def close(self, playid) -> None:
         writer = self.connections[playid][1]
         writer.close()
         await writer.wait_closed()
+
+class ClientServerSocket(Communication):
+    def __init__(self, own_port, peer_port):
+        super().__init__()
+        self.own_port = own_port
+        self.peer_port = peer_port
+
+
+    def send(self, message) -> None:
+        self.client.sendall(message.encode())
+        pass
+
+    def recv(self) -> None:
+        return self.client.recv(1024).decode()
+
+    def close(self, id) -> None:
+        self.client.close()
+
 
 
 """

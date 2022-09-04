@@ -1,0 +1,22 @@
+Starting by having everyone connect to coordinator using their ip/port/etc
+Coord start when ready by sending everyone the connection information of who's in the game
+Coord also asigns ids to players and sends list of all ids along with connection information
+    Coord is merely a meeting point
+Each player connects with each other player and THEN sends coord READY
+Players connect to each other as follows:
+    Player acts as server for all players whose position is smaller than self
+    Player acts connects (as client) for each player who position is higher than self
+i.e. for 4 players
+Client --> Server
+    1  -->  2
+    1  -->  3
+    1  -->  4
+    2  -->  3
+    2  -->  4
+    3  -->  4
+Coord by default is first player and each player gets a position
+Actions avilable:
+    2. TAKE_ACTION
+        * sends action to each player and does 2PC with each of the other players
+    3. END_TURN
+        * next player's turn
