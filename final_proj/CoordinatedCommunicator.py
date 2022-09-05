@@ -48,7 +48,7 @@ class CoordinatedCommunicator:
             self.sockets[peer_id] = socket.socket()
             ret = self.sockets[peer_id].connect_ex(('localhost', self.id_port_map[peer_id]))
             if ret == 0:
-                self.send(peer_id, str(self.own_id))
+                self.send_str(peer_id, str(self.own_id))
                 break
             print("RET:", ret)
             print("Failed. Trying again in 2 seconds")
@@ -72,7 +72,7 @@ class CoordinatedCommunicator:
                 sleep(2)
                 print("Trying again...")
 
-    def send(self, peer_id, message) -> None:
+    def send_str(self, peer_id, message) -> None:
         if peer_id == self.own_id:
             print("Can't send to self")
             return None
@@ -80,6 +80,16 @@ class CoordinatedCommunicator:
             print (f"No socket data found for {peer_id}")
             return None
         self.sockets[peer_id].sendall(message.encode())
+
+    def send(self, peer_id, data) -> None:
+        print("send() got:", data)
+        if peer_id == self.own_id:
+            print("Can't send to self")
+            return None
+        if not peer_id in self.sockets:
+            print (f"No socket data found for {peer_id}")
+            return None
+        self.sockets[peer_id].sendall(data)
 
     def recv(self, peer_id) -> str:
         if peer_id == self.own_id:
@@ -91,6 +101,23 @@ class CoordinatedCommunicator:
 
         while True:
             try:
+                # [:-1] to remove b'\n'
+                return self.sockets[peer_id].recv(1024)[:-1]
+            except:
+                print("No data. Trying Again in 2 seconds!")
+                sleep(2)
+
+    def recv_str(self, peer_id) -> str:
+        if peer_id == self.own_id:
+            print("Can't receive from self")
+            return None
+        if not peer_id in self.sockets:
+            print (f"No socket data found for {peer_id}")
+            return None
+
+        while True:
+            try:
+                # [:-1] to remove b'\n'
                 return self.sockets[peer_id].recv(1024).decode().strip()
             except:
                 print("No data. Trying Again in 2 seconds!")
