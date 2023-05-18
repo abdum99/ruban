@@ -61,12 +61,14 @@ def main():
             while True:
                 message = communicator.recv(turn)
                 print("recv:", message)
-                action = Action()
-                action.ParseFromString(message)
-                print("parsed:", action)
-                if action.type == ActionType.END_TURN:
-                    print("GOT END")
-                    break
+                for received in message:
+                    print(received)
+                    action = Action()
+                    action.ParseFromString(received)
+                    print("parsed:", action)
+                    if action.type == ActionType.END_TURN:
+                        print("GOT END")
+                        break
 
                 else:
                     # handle action

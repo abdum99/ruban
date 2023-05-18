@@ -102,7 +102,7 @@ class CoordinatedCommunicator:
         while True:
             try:
                 # [:-1] to remove b'\n'
-                return self.sockets[peer_id].recv(1024)[:-1]
+                return self.sockets[peer_id].recv(1024).split()
             except:
                 print("No data. Trying Again in 2 seconds!")
                 sleep(2)

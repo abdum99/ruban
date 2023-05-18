@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package action;
+
+enum ActionType {
+  END_TURN = 0;
+  ACTION_INITIATE = 1;
+  ACTION_REPLY = 2;
+}
+
+message Report {
+  string report = 1;
+}
+
+message Action {
+  ActionType type = 1;
+  int32 from_id = 2;
+  int32 to_id = 3;
+  Report report = 4;
+}
+
