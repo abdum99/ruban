@@ -33,31 +33,6 @@ class Communication(metaclass=ABCMeta):
     def close(self, id) -> None:
         pass
 
-class NETSocket(Communication):
-    def __init__(self, port) -> None:
-        super().__init__()
-        self.listen_port = port
-        self.connections = {}
-    
-    def on_recv(self) -> None:
-        pass
-    
-    # Open connection to port and add (id, port) to connections mappings
-    def connect(self, id, port) -> None:
-        addr = ('localhost', port)
-        conn = Client(addr) # family is deduced to be AF_INET
-        self.connections[id] = conn
-
-    def send(self, id, message) -> None:
-        self.connections[id].send(message)
-    
-    def listen(self) -> None:
-        addr = ('localhost', self.listen_port)
-        listener = Listener(addr) # family is deduced to be AF_INET
-
-    def close(self, id) -> None:
-        self.connections[id].close()
-
 class ASYNCSocket(Communication):
     def __init__(self, playid, port) -> None:
         super().__init__()

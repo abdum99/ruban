@@ -1,5 +1,5 @@
 import asyncio
-from communication import ASYNCSocket
+from Communication import ASYNCSocket
 from aioconsole import ainput
 
 # sock = None
