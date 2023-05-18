@@ -1,6 +1,5 @@
 import asyncio
 from Communication import ASYNCSocket
-from aioconsole import ainput
 
 # sock = None
 # playid = None
@@ -31,19 +30,20 @@ async def recv_forever(sock, conn_id):
 async def main():
     playid = int(input("MY ID: "))
     port = id_port_map[playid]
+    sock = ASYNCSocket(playid, "localhost", port)
+
     conn_id = int(input("id to connect to: "))
     conn_port = id_port_map[conn_id]
-    sock = ASYNCSocket(playid, port)
     conn_task = asyncio.create_task(sock.connect(conn_id, 'localhost', conn_port))
     await conn_task
-    print ("connected to", conn_port)
-    print(sock.connections)
-
-    print("Ready to send messages")
-
-    send_task = asyncio.create_task(get_user_input(sock, conn_id))
-    recv_task = asyncio.create_task(recv_forever(sock, conn_id))
-    await asyncio.wait([send_task, recv_task])
+    #     print ("connected to", conn_port)
+    #     print(sock.connections)
+    # 
+    #     print("Ready to send messages")
+    # 
+    #     send_task = asyncio.create_task(get_user_input(sock, conn_id))
+    #     recv_task = asyncio.create_task(recv_forever(sock, conn_id))
+    #     await asyncio.wait([send_task, recv_task])
 
 
 if __name__ == "__main__":

@@ -34,10 +34,11 @@ class Communication(metaclass=ABCMeta):
         pass
 
 class ASYNCSocket(Communication):
-    def __init__(self, playid, port) -> None:
+    def __init__(self, playid, host, port) -> None:
         super().__init__()
-        self.listen_port = port
         self.playid = playid
+        self.own_host = host
+        self.own_port = port
         # holds tuples of (reader, writer)
         self.connections: Dict[int, Tuple[asyncio.StreamReader, asyncio.StreamWriter]] = {} 
     
@@ -45,6 +46,7 @@ class ASYNCSocket(Communication):
     # Should probably change this to only take host, port and have 
     # <handle_conn> return id which connect can just verify
     async def connect(self, id, host, port) -> None:
+        log.debug("called connect")
         print("called connect")
         if id in self.connections: # check that a connection wasn't already established with this id
             log.error(self.playid, "is already connected to", id)
@@ -99,7 +101,7 @@ class ASYNCSocket(Communication):
         print("HOOORRRAAAAAAYYYYY!")
 
     # async def listen(self) -> None:
-    #     server = await asyncio.start_server(self.handle_conn, 'localhost', self.listen_port)
+    #     server = await asyncio.start_server(self.handle_conn, 'localhost', self.own_port)
     #     async with server:
     #         await server.serve_forever()
     #         print("serving")
@@ -109,7 +111,7 @@ class ASYNCSocket(Communication):
     async def listen(self) -> None:
         server = socket.socket()
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        addr = ('localhost', self.listen_port)
+        addr = ('localhost', self.own_port)
         server.bind(addr)
         server.listen(1)
         client, client_addr = server.accept()
