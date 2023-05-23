@@ -20,3 +20,5 @@ Actions avilable:
         * sends action to each player and does 2PC with each of the other players
     3. END_TURN
         * next player's turn
+
+The protocol as-is allows for greater security, since the messages do not have to pass through a central point
