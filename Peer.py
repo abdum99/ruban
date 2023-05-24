@@ -17,7 +17,8 @@ class Peer(Node, Coordinated):
         # calls Coordinated's __init__()
         host_conn_info = {"host": Peer.ADDRESS, "port": Peer.HOST_PORT}
         own_conn_info = {"host": Peer.ADDRESS, "port": port}
-        Coordinated.__init__(self, is_host, host_conn_info, own_conn_info)
+        Coordinated.__init__(self, is_host, own_conn_info)
+        self.setup(host_conn_info)
 
     def outbound_node_connected(self, connected_node):
         print("outbound_node_connected: " + connected_node.id)

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from threading import Event
+from time import sleep
 import json
 import logging
 
@@ -44,24 +45,20 @@ class Coordinated(ABC):
     CoordinatedRequestParticipants = "Request Participants"
     CoordinatedResponseParticipants = "Response Participants"
 
-    # TODO: <max_connections> currently unused
-    def __init_host(self, host_conn_info, max_connections):
-        log.debug("Called Coordinated __init__ for host")
-        self.is_host = True
-        self.conn_info = host_conn_info
-
+    def __setup_host__(self):
         self.participants = {
-            Coordinated.HOST_PID: host_conn_info,
+            Coordinated.HOST_PID: self.own_conn_info,
         }
 
         self.conn_info_to_pid = {
-            frozenset(host_conn_info.values()): Coordinated.HOST_PID
+            frozenset(self.own_conn_info.values()): Coordinated.HOST_PID
         }
 
         self.accepting_new_connections = True
-        self.listen_for_connections(host_conn_info, self.host_on_new_connection)
+        self.listen_for_connections(self.own_conn_info, self.host_on_new_connection)
 
-        input("Press <Return> when all participants have joined")
+        # TODO: change this to wait on an Event instead
+        input("Press <Return> when all participants have joined\n")
 
         self.accepting_new_connections = False
         self.stop_listening_for_connections()
@@ -79,13 +76,9 @@ class Coordinated(ABC):
                 "participants": self.participants
                 }
             ))
-
-    def __init_guest(self, host_conn_info, own_conn_info):
-        log.debug("Called Coordinated __init__ for non-host participant")
-        self.is_host = False
-
+    
+    def __setup_guest__(self, host_conn_info):
         self.participants = {
-            Coordinated.HOST_PID: host_conn_info,
         }
 
         self.conn_info_to_pid = {
@@ -95,8 +88,11 @@ class Coordinated(ABC):
         self.participants_filled = Event()
 
         # connect to host
-        self.connect(host_conn_info)
-        self.conn_info = own_conn_info
+        log.info("Connecting to host")
+        while not self.connect(host_conn_info):
+            sleep(2)
+            log.info("Trying again...")
+        log.info("Connected to host")
 
         # wait until host sends participants
         # no need for loop bc .set() is sticky
@@ -107,20 +103,25 @@ class Coordinated(ABC):
         log.debug("participants: %s", str(self.participants))
 
 
-    def __init__(self, is_host, host_conn_info, own_conn_info = None):
-        print("In Coordinated __init__")
-        if not host_conn_info:
-            log.error("Must provide host connection info <host_conn_info>")
-            return 
-
-        if is_host:
-            self.__init_host(host_conn_info, 0)
+    def setup(self, host_conn_info):
+        if self.is_host:
+            self.__setup_host__()
         else:
-            if own_conn_info == None:
-                log.error("Guest participants must provide connection info param")
-                return
+            if not host_conn_info:
+                log.error("Must provide host connection info")
+                return 
+            self.__setup_guest__(host_conn_info)
 
-            self.__init_guest(host_conn_info, own_conn_info)
+
+    def __init__(self, is_host, own_conn_info):
+        log.debug("initializing coordinated %s", "host" if is_host else "guest")
+        self.is_host = is_host
+
+        if own_conn_info == None:
+            log.error("All participants must provide connection info")
+            return
+
+        self.own_conn_info = own_conn_info
 
     def host_on_new_connection(self, conn_info):
         log.debug("Host received new connection request: %s", str(conn_info))
@@ -191,3 +192,4 @@ class Coordinated(ABC):
 # 5. Should new participants send a request to the host first?
 #     or just connect for the host to recognize them
 # 6. What happens if two people claim to be host???
+# 7. Add ping to periodically check if not connected to any client
