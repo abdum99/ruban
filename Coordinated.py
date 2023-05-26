@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from threading import Event
 from time import sleep
 import json
+import pickle
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
@@ -41,9 +42,9 @@ log = logging.getLogger(__name__)
 class Coordinated(ABC):
     # constants
     HOST_PID = 0
-    CoordinatedTypeKey = "_coordinated_type"
-    CoordinatedRequestParticipants = "Request Participants"
-    CoordinatedResponseParticipants = "Response Participants"
+    TypeKey = "_coordinated_type"
+    RequestParticipants = "Request Participants"
+    ResponseParticipants = "Response Participants"
 
     def __setup_host__(self):
         self.participants = {
@@ -63,23 +64,24 @@ class Coordinated(ABC):
         self.accepting_new_connections = False
         self.stop_listening_for_connections()
 
-        log.debug("Sending RES_PART: %s", self.participants)
+        log.debug("Sending RES_PART: %s", list(self.participants.keys()))
         # for each connection, send list of participants and conn_info
         # TODO: Put this in async function and await responses from users
         # confirm all users responded, otherwise send new list
         # this should prob be done in a 2PC fashion
         for pid, conn_info in self.participants.items():
-            self.send(conn_info, json.dumps(
-                {
-                Coordinated.CoordinatedTypeKey: Coordinated.CoordinatedResponseParticipants,
+            message = {
+                Coordinated.TypeKey: Coordinated.ResponseParticipants,
                 "own_pid": pid,
                 "participants": self.participants
                 }
-            ))
+            print("type of message:", type(message))
+            print("Sending message of len:", len(message))
+            print("message:", message)
+            self.send(conn_info, message)
     
     def __setup_guest__(self, host_conn_info):
-        self.participants = {
-        }
+        self.participants = {}
 
         self.conn_info_to_pid = {
             frozenset(host_conn_info.values()): Coordinated.HOST_PID
@@ -98,7 +100,7 @@ class Coordinated(ABC):
         # no need for loop bc .set() is sticky
         self.participants_filled.wait()
 
-        log.info("Received Personal ID from host: %s", str(self.own_id))
+        log.info("Received Personal ID from host: %s", str(self.own_pid))
         log.info("Received list of %s participants from host", str(len(self.participants)))
         log.debug("participants: %s", str(self.participants))
 
@@ -145,21 +147,24 @@ class Coordinated(ABC):
 
         # check if message is json, can be loaded
         # check if (from host and is participants info)
-        try:
-            print("received message:", message)
-            m_obj = json.loads(str(message))
-        except json.JSONDecodeError:
-            log.debug("Could not decode message into JSON. Skipping.\nMessage: %s", str(message))
-            return
+        # try:
+        print("sender pid:", type(sender_pid))
+        print("received message:", message)
+        print("of type", type(message))
+        print("len received", len(message))
+        # except json.JSONDecodeError:
+        #     log.debug("Could not decode message into JSON. Skipping.\nMessage: %s", str(message))
+        #     return
 
         try:
-            if sender_pid == HOST_PID and m_obj[CoordinatedTypeKey] == CoordinatedResponseParticipants:
-                self.own_id = m_obj["own_id"]
-                self.participants = m_obj["participants"]
+            if sender_pid == Coordinated.HOST_PID and message[Coordinated.TypeKey] == Coordinated.ResponseParticipants:
+                self.own_pid = message["own_pid"]
+                self.participants = message["participants"]
                 self.participants_filled.set() # notify waiting threads to proceed
 
-        except KeyError:
-            log.debug("message is not a formatted coordinated message.\nMessage: %s", str(m_obj))
+        except KeyError as e:
+            print(repr(e))
+            log.debug("message is not a formatted coordinated message.\nMessage: %s", str(message))
             return
 
 
@@ -193,3 +198,4 @@ class Coordinated(ABC):
 #     or just connect for the host to recognize them
 # 6. What happens if two people claim to be host???
 # 7. Add ping to periodically check if not connected to any client
+# 8. use Pickle instead of json to serialize data -- for now use json for readability
