@@ -56,7 +56,7 @@ class Coordinated(ABC):
         }
 
         self.accepting_new_connections = True
-        self.listen_for_connections(self.own_conn_info, self.host_on_new_connection)
+        self.listen_for_connections(self.own_conn_info, self.__host_on_new_connection)
 
         # TODO: change this to wait on an Event instead
         input("Press <Return> when all participants have joined\n")
@@ -70,6 +70,8 @@ class Coordinated(ABC):
         # confirm all users responded, otherwise send new list
         # this should prob be done in a 2PC fashion
         for pid, conn_info in self.participants.items():
+            if pid == 0:
+                continue
             message = {
                 Coordinated.TypeKey: Coordinated.ResponseParticipants,
                 "own_pid": pid,
@@ -88,6 +90,9 @@ class Coordinated(ABC):
         }
 
         self.participants_filled = Event()
+
+        print("Starting guest")
+        self.listen_for_connections(self.own_conn_info, self.__guest_on_new_connection)
 
         # connect to host
         log.info("Connecting to host")
@@ -125,16 +130,22 @@ class Coordinated(ABC):
 
         self.own_conn_info = own_conn_info
 
-    def host_on_new_connection(self, conn_info):
+    def __host_on_new_connection(self, conn_info):
         log.debug("Host received new connection request: %s", str(conn_info))
         if self.accepting_new_connections:
             if conn_info in self.participants.values():
                 log.error("Connection Info Already used by another participant. Pick different ones")
             else:
-                self.participants[len(self.participants)] = conn_info
-                log.info("Added new participant %s: %s", str(len(self.participants) - 1), str(conn_info))
+                pid = len(self.participants)
+                self.participants[pid] = conn_info
+                self.conn_info_to_pid[frozenset(conn_info.values())] = pid
+                log.info("Added new participant %s: %s", str(pid), str(conn_info))
+                self.send(conn_info, {Coordinated.TypeKey: "Received connection"})
         else:
             log.debug("Connection Request Refused: No Longer Accepting Connections")
+
+    def __guest_on_new_connection(self, conn_info):
+        print("Guest received new connection. Own conn info:", self.own_conn_info)
 
     # conn_info is conn_info
     # message is a string
@@ -160,13 +171,15 @@ class Coordinated(ABC):
             if sender_pid == Coordinated.HOST_PID and message[Coordinated.TypeKey] == Coordinated.ResponseParticipants:
                 self.own_pid = message["own_pid"]
                 self.participants = message["participants"]
+                for pid, conn_info in self.participants.items():
+                    print("Adding conn info for node", pid)
+                    self.conn_info_to_pid[frozenset(conn_info.values())] = pid
                 self.participants_filled.set() # notify waiting threads to proceed
 
         except KeyError as e:
             print(repr(e))
             log.debug("message is not a formatted coordinated message.\nMessage: %s", str(message))
             return
-
 
     @abstractmethod
     def listen_for_connections(self, conn_info, callback):
@@ -199,3 +212,4 @@ class Coordinated(ABC):
 # 6. What happens if two people claim to be host???
 # 7. Add ping to periodically check if not connected to any client
 # 8. use Pickle instead of json to serialize data -- for now use json for readability
+# 

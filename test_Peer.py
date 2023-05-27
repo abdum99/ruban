@@ -15,8 +15,6 @@ def main():
     pid = int(input("ID: "))
     peer = Peer(pid == 0, pid, ports_map[pid])
 
-    print("Created peer")
-
 
 
 if __name__ == "__main__":

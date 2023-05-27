@@ -52,11 +52,26 @@ class Peer(Node, Coordinated):
         self.start()
 
     def stop_listening_for_connections(self):
-        self.node_request_to_stop()
+        pass
+        # self.node_request_to_stop()
 
     def connect(self, conn_info) -> bool:
         return self.connect_with_node(conn_info["host"], conn_info["port"])
 
     def send(self, conn_info, message):
-        self.send_to_nodes(message)
+        try:
+            recipient_id = self.conn_info_to_pid[frozenset(conn_info.values())]
+            recipient = self.all_nodes[0]
+        except KeyError as e:
+            print("Could not find participant with connection info")
+            print(repr(e))
+            print("conn_info_to_pid:", self.conn_info_to_pid)
+            return
 
+        print("All connected nodes:", self.all_nodes)
+        print("Attempting to send message to", recipient)
+        self.send_to_node(recipient, message)
+
+# TODO:
+# 1. Instead of passing in (host, port), pass in the underlying NodeConnection
+# 
