@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from threading import Event
 from time import sleep
-import json
 import pickle
 import logging
 
@@ -35,7 +34,7 @@ log = logging.getLogger(__name__)
 # then sends it to each of the participants
 # Coordinated organizes turns and connection intitiations for P2P networks
 
-# conn_info:
+# connection:
 #  Implementation-defined; holds connection info that will be used for
 #  listen_for_connections, connect, send, on_receive
 #  * Should implement __str__ for helpful debugging
@@ -46,17 +45,73 @@ class Coordinated(ABC):
     RequestParticipants = "Request Participants"
     ResponseParticipants = "Response Participants"
 
+    # ----------------------------------------
+    # must implement these methods
+    @abstractmethod
+    def get_conn_info(self, connection):
+        pass
+
+    @abstractmethod
+    def listen_for_connections(self, connection, callback):
+        pass
+
+
+    @abstractmethod
+    def stop_listening_for_connections(self):
+        pass
+
+
+    @abstractmethod
+    def connect(self, peer) -> bool:
+        pass
+
+
+    @abstractmethod
+    def send(recipient, message):
+        pass
+    # ----------------------------------------
+
+    # These methods are already implemented. You should not override
+    def __add_participant__(self, connection):
+        # should lock here
+        participant = self.get_conn_info(connection)
+        pid = len(self.participants)
+        self.pids[participant] = pid 
+        self.participants.append(participant)
+        log.info("Added new participant %s: %s", str(pid), str(participant))
+        return participant
+
+    def __add_connection__(self, participant, connection):
+        self.connections[participant] = connection
+
+    def __send__(self, participant, message):
+        try:
+            connection = self.connections[participant]
+        except KeyError as e:
+            log.error("Trying to send message to participant with no open connection: %s", str(participant))
+            return
+
+        self.send(connection, pickle.dumps(message).replace(b'\x04', b'\x03'))
+
     def __setup_host__(self):
-        self.participants = {
-            Coordinated.HOST_PID: self.own_conn_info,
+        self.own_pid = Coordinated.HOST_PID
+
+        # <pids> and <participants> are common across all nodes
+        # participants id's
+        # <pids>: { conn_info --> PID }
+        self.pids = {
+            self.get_conn_info(self): Coordinated.HOST_PID
         }
 
-        self.conn_info_to_pid = {
-            frozenset(self.own_conn_info.values()): Coordinated.HOST_PID
-        }
+        # participant connection info
+        # <participants>: [ conn_info ]
+        self.participants = [ self.get_conn_info(self) ]
+
+        # connections are unique to each node and not sent by host
+        self.connections = {} # no connection to self
 
         self.accepting_new_connections = True
-        self.listen_for_connections(self.own_conn_info, self.__host_on_new_connection)
+        self.listen_for_connections(self.__host_on_new_connection__)
 
         # TODO: change this to wait on an Event instead
         input("Press <Return> when all participants have joined\n")
@@ -64,39 +119,45 @@ class Coordinated(ABC):
         self.accepting_new_connections = False
         self.stop_listening_for_connections()
 
-        log.debug("Sending RES_PART: %s", list(self.participants.keys()))
-        # for each connection, send list of participants and conn_info
+        log.debug("Sending RES_PART: %s", range(len(self.participants)))
+        # for each connection, send list of participants and connections
         # TODO: Put this in async function and await responses from users
         # confirm all users responded, otherwise send new list
         # this should prob be done in a 2PC fashion
-        for pid, conn_info in self.participants.items():
-            if pid == 0:
+        for participant, pid in self.pids.items():
+            if pid == 0: # do not send participants to host
                 continue
             message = {
                 Coordinated.TypeKey: Coordinated.ResponseParticipants,
+                "sender_pid": self.own_pid,
                 "own_pid": pid,
-                "participants": self.participants
+                "participants": self.participants,
+                "pids": self.pids,
                 }
-            print("type of message:", type(message))
-            print("Sending message of len:", len(message))
-            print("message:", message)
-            self.send(conn_info, message)
-    
-    def __setup_guest__(self, host_conn_info):
-        self.participants = {}
+            self.__send__(participant, message)
 
-        self.conn_info_to_pid = {
-            frozenset(host_conn_info.values()): Coordinated.HOST_PID
+    
+    def __setup_guest__(self, host_connection):
+        # add host as participant
+        self.pids = {
+            host_connection: Coordinated.HOST_PID
         }
+        # participant connection info
+        self.participants = [ host_connection ]
+
+        self.connections = {}
 
         self.participants_filled = Event()
 
-        print("Starting guest")
-        self.listen_for_connections(self.own_conn_info, self.__guest_on_new_connection)
+        # self.listen_for_connections(self.__guest_on_new_connection__)
 
         # connect to host
         log.info("Connecting to host")
-        while not self.connect(host_conn_info):
+        host = None
+        while True:
+            host = self.connect(host_connection)
+            if host:
+                break
             sleep(2)
             log.info("Trying again...")
         log.info("Connected to host")
@@ -110,92 +171,71 @@ class Coordinated(ABC):
         log.debug("participants: %s", str(self.participants))
 
 
-    def setup(self, host_conn_info):
+    def setup(self, host_connection = None):
         if self.is_host:
             self.__setup_host__()
         else:
-            if not host_conn_info:
-                log.error("Must provide host connection info")
+            if not host_connection:
+                log.error("Must provide host connection")
                 return 
-            self.__setup_guest__(host_conn_info)
+            self.__setup_guest__(host_connection)
 
-
-    def __init__(self, is_host, own_conn_info):
+    def __init__(self, is_host):
         log.debug("initializing coordinated %s", "host" if is_host else "guest")
         self.is_host = is_host
+        self.own_conn_info = self.get_conn_info(self)
 
-        if own_conn_info == None:
-            log.error("All participants must provide connection info")
-            return
 
-        self.own_conn_info = own_conn_info
-
-    def __host_on_new_connection(self, conn_info):
-        log.debug("Host received new connection request: %s", str(conn_info))
+    def __host_on_new_connection__(self, connected_node):
+        log.debug("Host received new connection request: %s", str(connected_node))
         if self.accepting_new_connections:
-            if conn_info in self.participants.values():
-                log.error("Connection Info Already used by another participant. Pick different ones")
+            if connected_node in self.pids:
+                log.error("Connection Info Already used by another participant. Pick different parameters")
             else:
-                pid = len(self.participants)
-                self.participants[pid] = conn_info
-                self.conn_info_to_pid[frozenset(conn_info.values())] = pid
-                log.info("Added new participant %s: %s", str(pid), str(conn_info))
-                self.send(conn_info, {Coordinated.TypeKey: "Received connection"})
+                participant = self.__add_participant__(connected_node)
+                self.__add_connection__(participant, connected_node)
+                self.__send__(participant, {Coordinated.TypeKey: "You're IN"})
+
         else:
-            log.debug("Connection Request Refused: No Longer Accepting Connections")
+            log.debug("Connection Request Refused: No Longer Accepting Connections.")
 
-    def __guest_on_new_connection(self, conn_info):
-        print("Guest received new connection. Own conn info:", self.own_conn_info)
 
-    # conn_info is conn_info
+    def __guest_on_new_connection__(self, connected_node):
+        log.info("Guest received new connection: %s", str(connected_node))
+
+
+    # connection
     # message is a string
-    def on_receive(self, conn_info, message):
-        if not frozenset(conn_info.values()) in self.conn_info_to_pid:
-            log.error("received message from unknown conn_info: %s", str(conn_info))
-            return
-
-        sender_pid = self.conn_info_to_pid[frozenset(conn_info.values())]
-
-        # check if message is json, can be loaded
-        # check if (from host and is participants info)
-        # try:
-        print("sender pid:", type(sender_pid))
-        print("received message:", message)
-        print("of type", type(message))
-        print("len received", len(message))
-        # except json.JSONDecodeError:
-        #     log.debug("Could not decode message into JSON. Skipping.\nMessage: %s", str(message))
-        #     return
+    def on_receive(self, sender, message):
+        log.debug("received message: %s", str(message))
 
         try:
-            if sender_pid == Coordinated.HOST_PID and message[Coordinated.TypeKey] == Coordinated.ResponseParticipants:
-                self.own_pid = message["own_pid"]
-                self.participants = message["participants"]
-                for pid, conn_info in self.participants.items():
-                    print("Adding conn info for node", pid)
-                    self.conn_info_to_pid[frozenset(conn_info.values())] = pid
-                self.participants_filled.set() # notify waiting threads to proceed
+            message = pickle.loads(message.replace(b'\x03', b'\x04'))
+        except Error as e:
+            print(repr(e))
+            return
+
+        try:
+            pid = self.pids[self.get_conn_info(sender)]
+            assert(pid == message["sender_pid"])
+            try:
+                if (pid == Coordinated.HOST_PID and
+                    message[Coordinated.TypeKey] == Coordinated.ResponseParticipants):
+                    self.own_pid = message["own_pid"]
+                    self.participants = message["participants"]
+                    self.pids = message["pids"]
+
+                    self.participants_filled.set() # notify waiting threads to proceed
+            except KeyError as e:
+                print(repr(e))
+                log.debug("received ill-formatted message: %s", str(message))
+                return
 
         except KeyError as e:
             print(repr(e))
-            log.debug("message is not a formatted coordinated message.\nMessage: %s", str(message))
+            log.debug("received message from unknown participant %s\nMessage: %s", str(sender), str(message))
             return
 
-    @abstractmethod
-    def listen_for_connections(self, conn_info, callback):
-        pass
-
-    @abstractmethod
-    def stop_listening_for_connections(self):
-        pass
-
-    @abstractmethod
-    def connect(self, conn_info) -> bool:
-        pass
-
-    @abstractmethod
-    def send(conn_info, message):
-        pass
 
 # TODO's:
 # 1. Use protobuf instead of constant messages
@@ -204,12 +244,7 @@ class Coordinated(ABC):
 #       The user can make a map of ID to connection info
 #  2.2 for now, should probably use a set of tuples instead of two dicts
 # 3. Change terminology to use organizer instead of host
-# 4. Make it more usable by separating Coordinated
-#     initialization and configuration (i.e. to  start listening)
-#     When you do that, it makes sense to have a separate function to configure the host
-# 5. Should new participants send a request to the host first?
-#     or just connect for the host to recognize them
-# 6. What happens if two people claim to be host???
-# 7. Add ping to periodically check if not connected to any client
-# 8. use Pickle instead of json to serialize data -- for now use json for readability
-# 
+# 4. What happens if two people claim to be host???
+# 5. Add ping to periodically check if not connected to any client
+# 6. Make organizer into a separate class that inherits Coordinated
+# 7. Change self.participants to be a dict instead of a list in case participants drop
