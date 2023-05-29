@@ -66,7 +66,7 @@ class Peer(Node, Coordinated):
 
 # These functions are implemented for Coordinated
     def get_conn_info(self, connection):
-        return (connection.host, connection.port)
+        return (connection.host, int(connection.port))
 
     def listen_for_connections(self, callback):
         self.on_new_connection_callback = callback
@@ -86,7 +86,4 @@ class Peer(Node, Coordinated):
         return None
 
     def send(self, recipient, message):
-        print("sending message to", recipient)
-        print("message:", message)
-        print("all nodes:", self.all_nodes)
         self.send_to_node(recipient, message)
