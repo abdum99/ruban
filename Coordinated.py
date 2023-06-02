@@ -6,7 +6,7 @@ import json
 import logging
 from enum import Enum
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 # Users cannot set their cid (Coordinated ID) because
@@ -101,12 +101,17 @@ class Coordinated(ABC):
             self.pids[participant] = pid 
             self.participants.append(participant)
             log.info("Added new participant %s: %s", str(pid), str(participant))
-            print("current pids:", self.pids)
         return participant
 
     def __add_connection__(self, participant, connection):
         with self.connections_lock:
             self.connections[participant] = connection
+
+
+    def coord_send(self, pid, message):
+        participant = self.participants[pid]
+        self.__send__(participant, message)
+
 
     def __send__(self, participant, message):
         with self.connections_lock:
@@ -174,7 +179,7 @@ class Coordinated(ABC):
 
         self.all_participants_acked.wait();
 
-        log.info("Host: sent list to all guests")
+        log.debug("Host: sent list to all guests")
         self.__update_state__(Coordinated.State.SENT_PARTICIPANTS)
 
         for participant, pid in self.pids.items():
@@ -266,7 +271,7 @@ class Coordinated(ABC):
         participant = self.get_conn_info(connected_node)
         with self.connections_lock:
             assert participant in self.participants
-        log.info("Guest received new connection: %s", str(connected_node))
+        log.debug("Guest received new connection: %s", str(connected_node))
         self.__add_connection__(participant, connected_node)
 
     # =====================================
@@ -282,7 +287,6 @@ class Coordinated(ABC):
             self.all_participants_acked.set()
 
     def __fill_participants__(self, message):
-        print("filling participants")
         with self.connections_lock:
             self.own_pid = message["own_pid"]
             self.participants = message["participants"]
@@ -295,7 +299,7 @@ class Coordinated(ABC):
         self.participants_filled.set() # notify waiting threads to proceed
 
     def ___sequence_connect__(self):
-        log.info("beginning connection sequence")
+        log.debug("beginning connection sequence to %s", self.participants)
 
         # wait until all guests with lower pid connect
         # TODO: remove polling and use lock + cv
@@ -313,7 +317,6 @@ class Coordinated(ABC):
         self.stop_listening_for_connections()
 
         # connect to all guests with higher pid
-        print("self.participants:", self.participants)
         for pid, conn_info in enumerate(self.participants[self.participants.index(self.own_conn_info) + 1:]):
             while True:
                 connection = self.connect(conn_info)
@@ -339,10 +342,12 @@ class Coordinated(ABC):
                 if message_type == Coordinated.Message.ACK_PARTICIPANTS:
                     self.__ack_participant__(pid)
 
+            return True
+
         except KeyError as e:
             print(repr(e))
             log.debug("received ill-formatted message: %s", str(message))
-            return
+            return False
 
 
     # connection
@@ -356,17 +361,15 @@ class Coordinated(ABC):
                 print(repr(e))
 
         log.debug("received message: %s", message)
-        print("message type:", type(message))
 
         if Coordinated.Message.TYPE_KEY in message:
-            print("COORD MESSAGE")
             try:
                 pid = self.pids[self.get_conn_info(sender)]
-                self.__handle_coordinated_message__(pid, message)
+                return self.__handle_coordinated_message__(pid, message)
             except KeyError as e:
                 print(repr(e))
                 log.debug("received message from unknown participant %s\nMessage: %s", str(sender), str(message))
-                return
+                return False
 
 
 
@@ -383,3 +386,6 @@ class Coordinated(ABC):
 # 7. Change self.participants to be a dict instead of a list in case participants drop
 # 8. Handle failure on connection (i.e. guest tries fails to connect to other guest)
 #       rn organizer assumes everyone will successfully connect to each other
+# 9. Add flag to not allow sending or receiving messages until network is connected and
+#       participants will not change
+#           This will change when nodes can be disconnected
