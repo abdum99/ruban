@@ -1,6 +1,7 @@
 from p2pnetwork.node import Node, NodeConnection
 from Coordinated import Coordinated
 import logging
+from threading import Thread
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
@@ -13,6 +14,10 @@ ports_map = {
         3: 33333,
         4: 33334,
         5: 33335,
+        6: 33336,
+        7: 33337,
+        8: 33338,
+        9: 33339,
         }
 
 # a connection is something you can call
@@ -24,13 +29,14 @@ class Peer(Node, Coordinated):
     def __init__(self, pid):
         port = ports_map[pid]
         is_host = pid == 0
+
         # __mro__ : Peer, Node, Thread, Coordinated
         # calls Node's __init__()
         super().__init__(Peer.ADDRESS, port, pid, None, 0)
 
         Coordinated.__init__(self, is_host)
 
-        self.setup((Peer.ADDRESS, Peer.HOST_PORT))
+        self.setup(f"{Peer.ADDRESS}:{Peer.HOST_PORT}")
 
     def outbound_node_connected(self, connected_node):
         print("outbound_node_connected: " + connected_node.id)
@@ -57,16 +63,14 @@ class Peer(Node, Coordinated):
     def node_request_to_stop(self):
         print("node is requested to stop!")
 
-    def __find_connection__(self, conn_info):
-        for node in self.all_nodes:
-            if (node.host == conn_info[0] and
-                node.port == conn_info[1]):
-                return node
-        return None
+    def __get_connection__(self, conn_info):
+        l = conn_info.split(":")
+        return (l[0], int(l[1]))
 
 # These functions are implemented for Coordinated
     def get_conn_info(self, connection):
-        return (connection.host, int(connection.port))
+        return f"{connection.host}:{connection.port}"
+        # return (connection.host, int(connection.port))
 
     def listen_for_connections(self, callback):
         self.on_new_connection_callback = callback
@@ -77,13 +81,18 @@ class Peer(Node, Coordinated):
         # self.node_request_to_stop()
 
     def connect(self, peer) -> NodeConnection:
-        if self.connect_with_node(peer[0], peer[1]):
+        conn_info = self.__get_connection__(peer)
+        if self.connect_with_node(conn_info[0], conn_info[1]):
             # find connected node
+            print("self.all_nodes:", self.all_nodes)
             for connection in self.all_nodes:
-                if (connection.host == peer[0] and
-                    connection.port == peer[1]):
+                if (connection.host == conn_info[0] and
+                    connection.port == conn_info[1]):
+                    print("found connection", connection)
                     return connection
+            print("did not find connection")
         return None
 
     def send(self, recipient, message):
+        print("sending to:", recipient)
         self.send_to_node(recipient, message)

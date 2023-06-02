@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from threading import Event, Lock
+from threading import Thread, Event, Lock
 from time import sleep
 import pickle
+import json
 import logging
 from enum import Enum
 
@@ -95,11 +96,12 @@ class Coordinated(ABC):
     def __add_participant__(self, connection):
         # should lock here
         participant = self.get_conn_info(connection)
-        print("adding new participant:", participant)
-        pid = len(self.participants)
-        self.pids[participant] = pid 
-        self.participants.append(participant)
-        log.info("Added new participant %s: %s", str(pid), str(participant))
+        with self.connections_lock:
+            pid = len(self.participants)
+            self.pids[participant] = pid 
+            self.participants.append(participant)
+            log.info("Added new participant %s: %s", str(pid), str(participant))
+            print("current pids:", self.pids)
         return participant
 
     def __add_connection__(self, participant, connection):
@@ -114,29 +116,37 @@ class Coordinated(ABC):
                 log.error("Trying to send message to participant with no open connection: %s", str(participant))
                 return
 
-        print("sending message:", message)
-        self.send(connection, pickle.dumps(message).replace(b'\x04', b'\x03'))
+        # self.send(connection, pickle.dumps(message).replace(b'\x04', b'\x03'))
+        self.send(connection, json.dumps(message))
+
+    def host_begin_round_robin(self):
+        self.all_participants_joined.set()
+
+    def is_ready(self):
+        return self.state == Coordinated.State.READY
 
     def __setup_host__(self):
+        self.all_participants_joined = Event()
+        self.all_participants_acked = Event()
+
         self.own_pid = Coordinated.HOST_PID
 
         # <pids> and <participants> are common across all nodes
         # participants id's
         # <pids>: { conn_info --> PID }
         self.pids = {
-            self.get_conn_info(self): Coordinated.HOST_PID
+            self.own_conn_info: Coordinated.HOST_PID
         }
 
         # participant connection info
         # <participants>: [ conn_info ]
-        self.participants = [ self.get_conn_info(self) ]
+        self.participants = [ self.own_conn_info ]
 
         self.accepting_new_connections = True
         self.listen_for_connections(self.__host_on_new_connection__)
         self.__update_state__(Coordinated.State.ACCEPTING_GUESTS)
 
-        # TODO: change this to wait on an Event instead
-        input("Press <Return> when all participants have joined\n")
+        self.all_participants_joined.wait()
 
         self.accepting_new_connections = False
         self.stop_listening_for_connections()
@@ -146,7 +156,6 @@ class Coordinated(ABC):
         self.participants_ack = [False] * len(self.participants)
         # host does not ack participants
         self.participants_ack[Coordinated.HOST_PID] = True
-        self.all_participants_acked = Event()
 
         # TODO: repeat this until all users have ACKed
         # for each connection, send list of participants and connections
@@ -213,15 +222,16 @@ class Coordinated(ABC):
         log.info("Received list of %s participants from host", str(len(self.participants)))
         log.debug("participants: %s", str(self.participants))
 
-
     def setup(self, host_conn_info = None):
         if self.is_host:
-            self.__setup_host__()
+            self.coord_thread = Thread(target=self.__setup_host__)
         else:
             if not host_conn_info:
                 log.error("Must provide host connection")
                 return 
-            self.__setup_guest__(host_conn_info)
+            self.coord_thread = Thread(target=self.__setup_guest__, args=(host_conn_info,))
+
+        self.coord_thread.start()
 
     def __init__(self, is_host):
         log.debug("initializing coordinated %s", "host" if is_host else "guest")
@@ -232,6 +242,10 @@ class Coordinated(ABC):
         # connections are unique to each node and not sent by host
         self.connections = {} # no connection to self
         self.connections_lock = Lock()
+
+    def __del__(self):
+        # TODO: signal coord thread to stop
+        self.coord_thread.join()
 
 
     def __host_on_new_connection__(self, connected_node):
@@ -250,7 +264,8 @@ class Coordinated(ABC):
 
     def __guest_on_new_connection__(self, connected_node):
         participant = self.get_conn_info(connected_node)
-        assert participant in self.participants
+        with self.connections_lock:
+            assert participant in self.participants
         log.info("Guest received new connection: %s", str(connected_node))
         self.__add_connection__(participant, connected_node)
 
@@ -267,9 +282,11 @@ class Coordinated(ABC):
             self.all_participants_acked.set()
 
     def __fill_participants__(self, message):
-        self.own_pid = message["own_pid"]
-        self.participants = message["participants"]
-        self.pids = message["pids"]
+        print("filling participants")
+        with self.connections_lock:
+            self.own_pid = message["own_pid"]
+            self.participants = message["participants"]
+            self.pids = message["pids"]
 
         self.__send__(self.participants[Coordinated.HOST_PID], {
             Coordinated.Message.TYPE_KEY: Coordinated.Message.ACK_PARTICIPANTS,
@@ -290,7 +307,9 @@ class Coordinated(ABC):
             self.connections_lock.release()
             sleep(2)
 
-        self.accepting_new_connections = False
+        with self.connections_lock:
+            self.accepting_new_connections = False
+
         self.stop_listening_for_connections()
 
         # connect to all guests with higher pid
@@ -303,6 +322,7 @@ class Coordinated(ABC):
                     break
                 sleep(2)
 
+        self.__update_state__(Coordinated.State.READY)
         log.info("Connected to all guests!")
 
     # =====================================
@@ -328,16 +348,18 @@ class Coordinated(ABC):
     # connection
     # message is a string
     def on_receive(self, sender, message):
-        try:
-            message = pickle.loads(message.replace(b'\x03', b'\x04'))
-        except Exception as e:
-            print("HERE")
-            print(repr(e))
-            return
+        if not isinstance(message, dict):
+            try:
+                # message = pickle.loads(message.replace(b'\x03', b'\x04'))
+                message = json.loads(message)
+            except Exception as e:
+                print(repr(e))
 
         log.debug("received message: %s", message)
+        print("message type:", type(message))
 
         if Coordinated.Message.TYPE_KEY in message:
+            print("COORD MESSAGE")
             try:
                 pid = self.pids[self.get_conn_info(sender)]
                 self.__handle_coordinated_message__(pid, message)
