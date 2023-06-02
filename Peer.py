@@ -38,12 +38,16 @@ class Peer(Node, Coordinated):
 
         self.setup(f"{Peer.ADDRESS}:{Peer.HOST_PORT}")
 
+    def register_callback(self, callback):
+        self.register_coord_callback(callback)
+
+
     def outbound_node_connected(self, connected_node):
-        print("outbound_node_connected: " + connected_node.id)
+        # print("outbound_node_connected: " + connected_node.id)
         self.on_new_connection_callback(connected_node)
 
     def inbound_node_connected(self, connected_node):
-        print("inbound_node_connected: " + connected_node.id)
+        # print("inbound_node_connected: " + connected_node.id)
         self.on_new_connection_callback(connected_node)
 
     def inbound_node_disconnected(self, connected_node):
@@ -57,10 +61,12 @@ class Peer(Node, Coordinated):
         self.on_receive(connected_node, data)
 
     def node_disconnect_with_outbound_node(self, connected_node):
-        print("node wants to disconnect with oher outbound node: " + connected_node.id)
+        pass
+        # print("node wants to disconnect with oher outbound node: " + connected_node.id)
 
     def node_request_to_stop(self):
-        print("node is requested to stop!")
+        pass
+        # print("node is requested to stop!")
 
     def __get_connection__(self, conn_info):
         l = conn_info.split(":")
@@ -94,3 +100,5 @@ class Peer(Node, Coordinated):
         self.send_to_node(recipient, message)
 
 # TODO: remove this class and just have people implement Coordinated instead
+# TODO: actually make it so that they can pass a class to Coordinated when initializing
+#           and Coordinated just uses that class

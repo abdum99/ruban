@@ -349,6 +349,8 @@ class Coordinated(ABC):
             log.debug("received ill-formatted message: %s", str(message))
             return False
 
+    def register_coord_callback(self, callback):
+        self.coord_callback = callback
 
     # connection
     # message is a string
@@ -358,18 +360,31 @@ class Coordinated(ABC):
                 # message = pickle.loads(message.replace(b'\x03', b'\x04'))
                 message = json.loads(message)
             except Exception as e:
-                print(repr(e))
+                log.debug(repr(e))
 
         log.debug("received message: %s", message)
 
+        try:
+            pid = self.pids[self.get_conn_info(sender)]
+        except KeyError as e:
+            print(repr(e))
+            log.debug("could not find pid of sender...")
+
         if Coordinated.Message.TYPE_KEY in message:
             try:
-                pid = self.pids[self.get_conn_info(sender)]
                 return self.__handle_coordinated_message__(pid, message)
             except KeyError as e:
                 print(repr(e))
                 log.debug("received message from unknown participant %s\nMessage: %s", str(sender), str(message))
                 return False
+
+        else: # not a coordinated setup message
+            if not hasattr(self, "coord_callback"):
+                log.error("received message but Coordinated does not have a callback registered."
+                          "\n message: %s", str(message))
+                return
+
+            self.coord_callback(pid, message)
 
 
 
