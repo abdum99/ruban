@@ -14,20 +14,37 @@ log = logging.getLogger(__name__)
 # maybe something we can add later, but for now this is done
 # by the organizing host
 
-# should instead do as follows:
-# 
-#  ┌───────┐    ┌─────────────┐
-#  │  Node │    │ Coordinated │
-#  └───────┘    └─────────────┘
-#      ▲               ▲
-#      │               │
-#      │               │
-#      └───────┬───────┘
-#              │
-#              │
-#          ┌───┴──┐
-#          │ Peer │
-#          └──────┘
+# Current Design:
+#                  ┌────────┐
+#                  │ Teller │
+#                  └────▲───┘
+#                       │
+#                       │
+#                       │
+# ┌────────┐     ┌──────┴──────┐
+# │  Node  │     │ Coordinated │
+# └───▲────┘     └──────▲──────┘
+#     │                 │
+#     │                 │
+#     │                 │
+#     └─────────┬───────┘
+#               │
+#               │
+#           ┌───┴──┐
+#           │ Peer │
+#           └──────┘
+
+# will change it to be:
+# ┌────────┐    ┌────────┐
+# │  Node  │    │ Teller │
+# └───▲────┘    └────▲───┘
+#     │              │
+#     └───────┬──────┘
+#             │
+#      ┌──────┴──────┐
+#      │ Coordinated │
+#      └─────────────┘
+# so that Coordinated is instantiated as Coordinated(Node)
 
 # Coordinated is an abstract class for participants
 # One participants serves as the host to connect everyone together
