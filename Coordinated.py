@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from threading import Thread, Event, Lock
 from time import sleep
 import pickle
-import json
 import logging
 from enum import Enum
 
@@ -139,7 +138,7 @@ class Coordinated(ABC):
                 return
 
         # self.send(connection, pickle.dumps(message).replace(b'\x04', b'\x03'))
-        self.send(connection, json.dumps(message))
+        self.send(connection, pickle.dumps(message).hex())
 
     def host_begin_round_robin(self):
         self.all_participants_joined.set()
@@ -375,7 +374,7 @@ class Coordinated(ABC):
         if not isinstance(message, dict):
             try:
                 # message = pickle.loads(message.replace(b'\x03', b'\x04'))
-                message = json.loads(message)
+                message = pickle.loads(bytes.fromhex(message))
             except Exception as e:
                 log.debug(repr(e))
 
