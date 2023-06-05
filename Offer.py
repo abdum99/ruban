@@ -1,5 +1,6 @@
 from hashlib import sha1
 from enum import Enum
+from copy import deepcopy
 
 class Message:
     class Type(Enum):
@@ -10,9 +11,13 @@ class Message:
     
     def __init__(self, sender, type, chain, signature = None):
         self.sender = sender
-        self.type = type
-        self.chain = chain
+        self.type: Message.Type = type
+        self.chain: Chain = chain
         self.signed = signature
+    
+    def sign(self, key):
+        #TODO: actually make this signature instead of just key
+        self.signed = key
     
     def ok(self, sender, signature):
         return Message(sender, Message.Type.OK, self.chain, signature)
@@ -29,6 +34,7 @@ class Offer:
         RECEIVED  = 4 # cohort received new offer; await player
         OKED      = 5 # cohort OKed new offer; await leader
         COUNTERED = 6 # cohort countered offer; await leader
+                      # old offer: ABORTED;
         # common
         COMMITTED = 7 # end result; both leader and cohort agree
         ABORTED   = 8 # end result; both leader and cohort agree
@@ -36,42 +42,67 @@ class Offer:
     def __init__(self, chain=None) -> None:
         self.chain: Chain = chain
         self.state = Offer.State.INITIAL
-    
+        self.prev = None
+        self.counters = {}
+
     def state(self):
         return self.state
 
     def responses(self):
         pass
 
-    def propose(self, chain):
+    def propose(self, chain, prev=None):
         assert self.state == Offer.State.INITIAL, (
             "Offer object is already filled. Create a new Offer."
         )
         self.chain:Chain = chain
         self.state = Offer.State.PROPOSING
+        self.prev=hash(prev)
         self.counters = {}
         return self
+    
+    def commit(self):
+        assert self.state == Offer.State.PROPOSING, (
+            "trying to COMMIT an unproposed offer"
+        )
+        assert len(self.counters) == 0, (
+            "at least one cohort did not ok"
+        )
+
+        self.state = Offer.State.COMITTING
+    
+    def abort(self):
+        self.state = Offer.State.ABORTED
+
     
     def receive(self, chain):
         assert self.state == Offer.State.INITIAL, (
             "Offer object is already filled. Create a new Offer."
         )
-        self.chain = chain
+        # separate copy avoids single process, multi-threaded issues
+        self.chain = deepcopy(chain)
         self.state = Offer.State.RECEIVED
         return self
     
-    def ok(self):
+    def ok(self, own_pid, signature):
         assert self.state == Offer.State.RECEIVED
         self.state = Offer.State.OKED
+        self.add_ok(own_pid, signature)
         return self
-    
-    def counter(self, counter):
+
+    def counter(self, pid, counter):
         assert self.state == Offer.State.RECEIVED
+        assert self.chain.is_counter(counter)
+
         self.state = Offer.State.COUNTERED
-        return Offer(counter)
+
+        self.add_counter(pid, counter)
+
+        return self
 
     def add_ok(self, pid, signature):
         self.chain.add_ok(pid, signature)
+        return self
     
     def add_counter(self, pid, counter):
         assert isinstance(counter, Chain)
@@ -81,10 +112,45 @@ class Offer:
         
         # TODO: check if pid already made a counter
         self.counters[pid] = counter
+        return self
+    
+    def get_message(self, own_pid):
+        m_type = None
+        chain = self.chain
+        if self.state == Offer.State.PROPOSING:
+            m_type = Message.Type.PROPOSE
+        elif self.state == Offer.State.OKED:
+            m_type = Message.Type.OK
+        elif self.state == Offer.State.COUNTERED:
+            m_type = Message.Type.COUNTER
+            chain = self.counters[own_pid]
+        elif self.state == Offer.State.COMITTING:
+            m_type = Message.Type.COMMIT
+        else:
+            return None
 
+        return Message(
+            sender=own_pid,
+            type=m_type,
+            chain=chain,
+        )
     
     def __hash__(self):
-        hash(self.chain)
+        return hash(self.chain)
+    
+    def __str__(self):
+        string = "\n======OFFER======\n"
+        string += f"state: {self.state.name}\n"
+        string += str(self.chain) + "\n"
+        string += "counters:\n"
+        if not self.counters:
+            string += "None\n"
+        else:
+            string += "\n"
+            for pid, counter in self.counters.items():
+                string += str(pid) + ":" + str(counter)  + "\n"
+        string += "=================\n"
+        return string
 
 
 class Chain:
@@ -118,6 +184,18 @@ class Chain:
     
     def __hash__(self) -> int:
         return hash((self.owner, tuple(self.actions)))
+    
+    def __str__(self):
+        string = f"----{hex(hash(self))}-----\n"
+        string += "owner: " + str(self.owner) + "\n"
+        string += "OKs:\n" + str(self.OKs) + "\n"
+        string += f"prev: {'None' if not self.prev else hex(self.prev)}\n"
+        string += "ACTIONS:\n"
+        for i, action in enumerate(self.actions):
+            string += f"\t{i}: " + str(action) + "\n"
+        string += "-------------\n"
+        return string
+
 
 # action can be nested using hashes
 class Action:
@@ -127,26 +205,41 @@ class Action:
     
     def __hash__(self):
         return hash((self.owner, self.content))
+    
+    def __str__(self) -> str:
+        return f"ACTION by {self.owner}: {self.content}"
 
 def main():
     chain = Chain(1, [])
     assert hash(chain) == hash((1, tuple([])))
 
     # add an action
-    action = Action(2, "BLAH")
+    action = Action(1, "BLAH")
 
-    assert hash(action) == hash((2, "BLAH"))
+    assert hash(action) == hash((1, "BLAH"))
 
     chain.add_action(action)
     assert hash(chain) == hash((1, tuple([action])))
 
-    offer = Offer().receive(chain)
+    offer_prop = Offer().propose(chain)
 
-    offer.add_ok(2, "2")
+    offer_to_ok = Offer().receive(offer_prop.chain)
+    offer_to_counter = Offer().receive(offer_prop.chain)
+
+    offer_to_ok.ok(2, "2")
+
     new_action = Action(3, "hmm")
-    new_offer = offer.counter(chain.counter([new_action]))
+    counter = offer_to_counter.chain.counter([new_action])
+    offer_to_counter.counter(3, counter)
 
-    assert offer.chain.is_counter(new_offer.chain)
+    print("proposed offer:\n", offer_prop)
+    print("oked offer:\n", offer_to_ok)
+    print("countered offer:\n", offer_to_counter)
+
+    print(id(offer_to_counter.chain))
+    print(id(offer_to_ok.chain))
+    print(id(offer_prop.chain))
+
 
 
 if __name__ == "__main__":
