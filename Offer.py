@@ -209,6 +209,9 @@ class Action:
     def __str__(self) -> str:
         return f"ACTION by {self.owner}: {self.content}"
 
+    def __repr__(self) -> str:
+        return f"ACTION by {self.owner}: {self.content}"
+
 def main():
     chain = Chain(1, [])
     assert hash(chain) == hash((1, tuple([])))
