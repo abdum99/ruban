@@ -1,6 +1,9 @@
-from hashlib import sha1
 from enum import Enum
 from copy import deepcopy
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+log = logging.getLogger(__name__)
 
 class Message:
     class Type(Enum):
@@ -21,23 +24,31 @@ class Message:
     
     def ok(self, sender, signature):
         return Message(sender, Message.Type.OK, self.chain, signature)
+    
+    def __str__(self):
+        string = f"Message by {self.sender}\n"
+        string += f"type: {self.type.name}\n"
+        string += str(self.chain)
+        string += str(self.signed)
+        return string 
 
 class Offer:
     class State(Enum):
         INITIAL   = 0  # created Offer
         # leader
-        PROPOSING = 1 # leader sent propose(); await cohorts
-        DECIDING  = 2 # leader collected responses; await player
-        COMITTING = 3 # leader got all OKs
+        PROPOSING = 1  # leader sent propose(); await cohorts
+        COUNTER   = 2  # leader received counter; await player
+        DECIDING  = 3  # leader collected responses; await player
+        COMITTING = 4  # leader got all OKs
         # cohort
         # TODO: do I need both OKED and COUNTERED states?
-        RECEIVED  = 4 # cohort received new offer; await player
-        OKED      = 5 # cohort OKed new offer; await leader
-        COUNTERED = 6 # cohort countered offer; await leader
-                      # old offer: ABORTED;
+        RECEIVED  = 6  # cohort received new offer; await player
+        OKED      = 7  # cohort OKed new offer; await leader
+        COUNTERED = 8  # cohort countered offer; await leader
+                       # old offer: ABORTED;
         # common
-        COMMITTED = 7 # end result; both leader and cohort agree
-        ABORTED   = 8 # end result; both leader and cohort agree
+        COMMITTED = 10 # end result; both leader and cohort agree
+        ABORTED   = 11 # end result; both leader and cohort agree
     
     def __init__(self, chain=None) -> None:
         self.chain: Chain = chain
@@ -48,8 +59,8 @@ class Offer:
     def state(self):
         return self.state
 
-    def responses(self):
-        pass
+    def respondants(self) -> list[any]:
+        return list(self.chain.OKs.keys()) + list(self.counters.keys())
 
     def propose(self, chain, prev=None):
         assert self.state == Offer.State.INITIAL, (
@@ -61,6 +72,14 @@ class Offer:
         self.counters = {}
         return self
     
+    def counter(self, counter):
+        assert self.state == Offer.State.INITIAL
+
+        self.state = Offer.State.COUNTER
+        self.chain = counter
+
+        return self
+
     def commit(self):
         assert self.state == Offer.State.PROPOSING, (
             "trying to COMMIT an unproposed offer"
@@ -74,7 +93,6 @@ class Offer:
     def abort(self):
         self.state = Offer.State.ABORTED
 
-    
     def receive(self, chain):
         assert self.state == Offer.State.INITIAL, (
             "Offer object is already filled. Create a new Offer."
@@ -90,7 +108,7 @@ class Offer:
         self.add_ok(own_pid, signature)
         return self
 
-    def counter(self, pid, counter):
+    def make_counter(self, pid, counter):
         assert self.state == Offer.State.RECEIVED
         assert self.chain.is_counter(counter)
 
@@ -99,7 +117,11 @@ class Offer:
         self.add_counter(pid, counter)
 
         return self
-
+    
+    def committed(self):
+        self.state == Offer.State.COMMITTED
+        return self
+    
     def add_ok(self, pid, signature):
         self.chain.add_ok(pid, signature)
         return self
@@ -111,7 +133,8 @@ class Offer:
             return None
         
         # TODO: check if pid already made a counter
-        self.counters[pid] = counter
+        counter_offer = Offer().counter(counter)
+        self.counters[pid] = counter_offer
         return self
     
     def get_message(self, own_pid):
@@ -196,10 +219,25 @@ class Chain:
         string += "-------------\n"
         return string
 
+    def __repr__(self) -> str:
+        string = f"----{hex(hash(self))}-----\n"
+        string += "owner: " + str(self.owner) + "\n"
+        string += "OKs:\n" + str(self.OKs) + "\n"
+        string += f"prev: {'None' if not self.prev else hex(self.prev)}\n"
+        string += "ACTIONS:\n"
+        for i, action in enumerate(self.actions):
+            string += f"\t{i}: " + str(action) + "\n"
+        string += "-------------\n"
+        return string
+
 
 # action can be nested using hashes
 class Action:
     def __init__(self, owner: int, content: str):
+        if not content:
+            log.error("cannot create empty action")
+            return
+
         self.owner = owner
         self.content = content
     

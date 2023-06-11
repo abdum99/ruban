@@ -1,25 +1,38 @@
 from abc import ABC, abstractmethod
 from threading import Thread
-import asyncio
 from enum import Enum
 import logging
-from Peer import Peer
 from Offer import Message, Chain, Offer, Action
 
-
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
 class Trader(ABC):
     def __init__(self):
         super().__init__()
-        self.__offers: set(Offer) = set()
+        self.__offers: dict[int, Offer] = {}
+        print("trader offers:", self.__offers)
     
 
     # these must be implemented
     # must call accept() or reject() with offer
     @abstractmethod
-    async def respond(self, offers):
+    def respond(self, offer):
+        pass
+    
+    @abstractmethod
+    def committed(self, chain):
+        pass
+
+    @abstractmethod
+    def aborted(self, chain):
+        pass
+
+    # ===========================
+    # to be implemented by deCoordinated
+    # --------------
+    @abstractmethod
+    def send_to_pid(self, participant, message):
         pass
 
     @abstractmethod
@@ -29,111 +42,120 @@ class Trader(ABC):
     @abstractmethod
     def get_own_pid(self):
         pass
-
-    @abstractmethod
-    async def send(self, participant, message):
-        pass
+    # ==========================
 
 # interface
+# offer(), accept(), reject(), counter()
 # ---------------------------------------
-    async def offer(self, chain, prev=None):
+    def offer(self, chain, prev=None):
         """
         Create an Offer and propose to all participants
         """
         # create offer for tracking
         offer = Offer().propose(chain, prev=prev)
-        self.__offers.add(offer)
+        self.__add_offer(offer)
 
         # send PROPOSE to everyone
-        await self.__propose(offer)
+        self.__propose(offer)
 
-    async def accept(self, chain: Chain):
+    def accept(self, offer: Offer):
         """
         Used for:
         1. accept a proposed offer and send OK
         2. accept a COUNTER and propose it to everyone
         """
 
-        if chain in self.__offers:
-            offer = self.__offers[chain]
-            # cohort received offer and accepting
-            if offer.state == Offer.State.RECEIVED:
-                self.__ok(offer)
+        # cohort received offer and accepting
+        if offer.state == Offer.State.RECEIVED:
+            if not self.__has_offer(offer):
+                log.error("Accepting uncrecognized offer")
+                return 
 
-        # leader received counters and chose offer
-        elif chain.prev in self.__offers:
-            original_offer = self.__offers[chain.prev]
-            if original_offer.state == Offer.State.DECIDING:
-                original_offer.abort()
-                # remove original_offer with its counters
-                self.__offers.remove(original_offer)
-            
-                # propose counter
-                self.offer(chain, prev=original_offer.chain)
+            self.__ok(offer)
 
-    async def reject(self, original_chain, counter_chain=None):
+        # leader choosing counter offer
+        elif (offer.state == Offer.State.COUNTER and 
+              self.__has_offer(offer.chain.prev)):
+                orig_offer = self.__get_offer(offer.chain.prev)
+                if orig_offer.state == Offer.State.DECIDING:
+                    orig_offer.abort()
+                    # remove orig_offer with its counters
+                    self.__pop_offer(orig_offer)
+                
+                    # propose counter
+                    self.offer(offer.chain, prev=orig_offer.chain)
+
+    def reject(self, original_chain, counter_chain=None):
         """
         Used for:
         1. reject a proposed offer and send COUNTER
         2. reject a COUNTER but propose a new COUNTER
         """
         # offers are just hashed by their chain so I think this should work...?
-        original_offer: Offer = self.__offers[original_chain]
+        orig_offer = self.__get_offer(original_chain)
         # cohort received a proposed offer
-        if original_offer.state == Offer.State.RECEIVED:
+        if orig_offer.state == Offer.State.RECEIVED:
             if counter_chain:
-                counter_offer = original_offer.counter(counter_chain)
+                counter_offer = orig_offer.counter(counter_chain)
         # leader rejecting a counter offer
-        elif original_offer.state == Offer.State.DECIDING:
+        elif orig_offer.state == Offer.State.DECIDING:
             pass
-
 
 # internal
 # ---------------------------------------
-    async def __propose(self, offer: Offer):
+    def __broadcast(self, message):
+        log.debug(f"broadcasting message: {str(message)}")
+        for p in self.get_participants():
+            if p != self.get_own_pid(): # do not send to self
+                self.send_to_pid(p, message)
+
+    def __propose(self, offer: Offer):
         """
         send PROPOSE message to all participant
         """
+        log.debug(f"Proposing offer {str(offer)}")
         message = offer.get_message(self.get_own_pid())
         message.sign(self.get_own_pid())
 
-        participants = self.get_participants()
-        send_tasks = [asyncio.create_task(self.send(p, message))
-                      for p in participants]
-        asyncio.gather(*send_tasks)
+        self.__broadcast(message)
     
-    async def __commit(self, offer: Offer):
+    def __commit(self, offer: Offer):
+        log.debug("Committing offer %s", str(offer))
         offer.commit()
         message = offer.get_message(self.get_own_pid())
         message.sign(self.get_own_pid())
 
-        participants = self.get_participants()
-        send_tasks = [asyncio.create_task(self.send(p, message))
-                      for p in participants]
-        asyncio.gather(*send_tasks)
+        self.__broadcast(message)
 
-    async def __ok(self, offer:Offer):
-        offer.ok()
+        offer.committed()
+
+        self.committed(offer.chain)
+
+    def __ok(self, offer:Offer):
+        offer.ok(self.get_own_pid(), self.get_own_pid())
         message = offer.get_message(self.get_own_pid())
         message.sign(self.get_own_pid())
 
         # send OK to leader
         leader = offer.chain.owner
-        await asyncio.create_task(self.send(leader, message))
-        
+        self.send_to_pid(leader, message)
 
-    async def __counter(self, original, new):
+    def __counter(self, original, new):
         pass
 
-    async def __responses_received(self, offer: Offer):
+    def __responses_received(self, offer: Offer):
         if len(offer.counters) == 0:
-            await self.__commit(offer)
+            self.__commit(offer)
         
         else:
-            await self.respond(offer.counters.values())
-
+            offer.state = Offer.State.DECIDING
+            self.respond(offer)
     
-    async def __recv(self, message: Message):
+    def __all_responded(self, offer: Offer):
+        return (set(offer.respondants() + [self.get_own_pid()]) ==
+                set(self.get_participants()))
+    
+    def __recv(self, message: Message):
         """
         ### leader:
         1. if OK:
@@ -160,33 +182,53 @@ class Trader(ABC):
         # leader
         # -------------------------------------
         if message.type == Message.Type.OK:
-            offer: Offer = self.__offers[message.chain]
+            offer = self.__get_offer(message.chain)
             offer.add_ok(message.sender, message.signed)
-            if (offer.chain.OKs.keys() + offer.counters.keys() ==
-                self.get_participants()):
-                await self.__responses_received(offer)
+            if self.__all_responded(offer):
+                self.__responses_received(offer)
 
         elif message.type == Message.Type.COUNTER:
-            offer: Offer = self.__offers[message.chain.prev]
+            offer = self.__get_offer(message.chain.prev)
             offer.add_counter(message.sender, message.chain)
-            if (offer.chain.OKs.keys() + offer.counters.keys() ==
-                self.get_participants()):
-                await self.__responses_received(offer)
+            if self.__all_responded(offer):
+                self.__responses_received(offer)
         # -------------------------------------
 
         # cohort
         # -------------------------------------
         elif message.type == Message.Type.PROPOSE:
             # if prev in offers (leader accepted counter)
-            if message.chain.prev and message.chain.prev in self.__offers:
+            if message.chain.prev and self.__has_offer(message.chain.prev):
                 # remove
-                self.__offers.remove(message.chain.prev)
+                self.__pop_offer(message.chain.prev)
 
             offer = Offer().receive(message.chain)
-            self.__offers.add(offer)
+            self.__add_offer(offer)
             self.respond(offer)
+        
+        elif message.type == Message.Type.COMMIT:
+            # TODO: validate signatures
+            offer = self.__get_offer(message.chain)
+            offer.committed()
+            self.committed(offer.chain)
         # -------------------------------------
 
+    # ===============================
+    # mechanisms to lookup using offers and chains
+    # ----------------
+    def __has_offer(self, lookup: Offer | Chain) -> bool:
+        return hash(lookup) in self.__offers
+
+    def __add_offer(self, offer: Offer):
+        self.__offers[hash(offer)] = offer
+    
+    def __get_offer(self, lookup: Offer | Chain):
+        return self.__offers[hash(lookup)]
+    
+    def __pop_offer(self, lookup: Offer | Chain):
+        return self.__offers.pop(hash(lookup))
+    # ===============================
+    
 
 class BasicTrader(Trader):
     def __init__(self):
@@ -194,10 +236,7 @@ class BasicTrader(Trader):
     
     # these must be implemented
     # must call accept() or reject() with offer
-    def respond(self, offers):
-        for i, offer in enumerate(offers):
-            print(f"{i}:", offer)
-        input("Enter counter")
+    def respond(self, offer):
         pass
 
     def get_participants(self):
@@ -208,19 +247,18 @@ class BasicTrader(Trader):
 
     # temporary
     # TODO: remove and actually use Peer's send()
-    async def send(self, participant, message):
+    def send(self, participant, message):
         print(f"SENDING {participant}:\n{message}")
 
-
-async def main():
+def main():
     trader = BasicTrader()
     actions = [Action(1, f"action{i}") for i in range(1, 3)]
     chain = Chain(1, actions)
-    await trader.offer(chain)
+    trader.offer(chain)
     print("PASS")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
 
 
 # TODO:

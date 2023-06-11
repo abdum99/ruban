@@ -1,7 +1,8 @@
 from p2pnetwork.node import Node, NodeConnection
-from Coordinated import Coordinated
+from deCoordinated import deCoordinated
 import logging
 from threading import Thread
+from Offer import Chain, Offer
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -20,9 +21,11 @@ ports_map = {
         9: 33339,
         }
 
+game = []
+
 # a connection is something you can call
 # <get_conn_info> on and pass to send, etc
-class Peer(Node, Coordinated):
+class Peer(Node, deCoordinated):
     ADDRESS = "127.0.0.1"
     HOST_PORT = 33330
 
@@ -34,7 +37,7 @@ class Peer(Node, Coordinated):
         # calls Node's __init__()
         super().__init__(Peer.ADDRESS, port, pid, None, 0)
 
-        Coordinated.__init__(self, is_host)
+        deCoordinated.__init__(self, is_host)
 
         self.setup(f"{Peer.ADDRESS}:{Peer.HOST_PORT}")
 
@@ -98,6 +101,43 @@ class Peer(Node, Coordinated):
 
     def send(self, recipient, message):
         self.send_to_node(recipient, message)
+    
+    def committed(self, chain):
+        game.append(chain)
+        print("WOOHOO chain committed!!!")
+        print(chain)
+        print("current game:\n", game)
+    
+    def aborted(self, chain):
+        print("BOO chain not committed after all")
+        print(chain)
+        print("current game:\n", game)
+    
+    def respond(self, offer: Offer):
+        print("respoding to offer:")
+        print(offer)
+        if offer.state == Offer.State.RECEIVED:
+            answer = input("(Y)es / (N)o: ")
+            if answer.lower() == "y":
+                self.accept(offer)
+            else:
+                self.reject(offer)
+        elif offer.state == Offer.State.DECIDING:
+            print("got offers:\n")
+            for pid, coffer in offer.counters.items:
+                print(pid)
+                print(coffer)
+
+            answer = input("Enter pid to select counter or <Return> to reject:")
+
+            if not answer:
+                self.reject(offer)
+            else:
+                answer = int(answer)
+                if answer in offer.counters.keys():
+                    self.accept(offer.counters[answer])
+                else:
+                    log.error("accepting an unrecognized counter")
 
 # TODO: remove this class and just have people implement Coordinated instead
 # TODO: actually make it so that they can pass a class to Coordinated when initializing

@@ -7,7 +7,7 @@ import logging
 MAX_TRIALS = 5
 NUM_PARTICIPANTS = 6
 
-class TestCoordinatedMethods(unittest.TestCase):
+class TestdeCoordinatedMethods(unittest.TestCase):
 
     def setUp(self):
         self.numParticipants = NUM_PARTICIPANTS
@@ -45,10 +45,14 @@ class TestCoordinatedMethods(unittest.TestCase):
                 print(repr(e))
                 print(f"p{i} has participants:", peer.pids)
 
-    def send_and_receive(self):
+    def send_and_recv_txt(self):
         for i, peer in enumerate(self.peers):
             for j, recipient in enumerate(self.peers):
                 peer.coord_send(j, f"HELLO {j}. FROM {i}")
+    
+    def send_recv_turns(self):
+        action = Action()
+
 
     def recv(self, pid, message):
         print(f"{pid} said {message}")
@@ -58,7 +62,9 @@ class TestCoordinatedMethods(unittest.TestCase):
         self.all_nodes_connected()
         for i, peer in enumerate(self.peers):
             peer.register_coord_callback(self.recv)
-        self.send_and_receive()
+        self.send_and_recv_txt()
+        # self.send_and_recv_turns()
+    
             
 
 
