@@ -4,14 +4,13 @@ from enum import Enum
 import logging
 from Offer import Message, Chain, Offer, Action
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 class Trader(ABC):
     def __init__(self):
         super().__init__()
         self.__offers: dict[int, Offer] = {}
-        print("trader offers:", self.__offers)
     
 
     # these must be implemented
@@ -248,14 +247,13 @@ class BasicTrader(Trader):
     # temporary
     # TODO: remove and actually use Peer's send()
     def send(self, participant, message):
-        print(f"SENDING {participant}:\n{message}")
+        pass
 
 def main():
     trader = BasicTrader()
     actions = [Action(1, f"action{i}") for i in range(1, 3)]
     chain = Chain(1, actions)
     trader.offer(chain)
-    print("PASS")
 
 if __name__ == "__main__":
     main()

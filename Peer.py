@@ -1,7 +1,6 @@
 from p2pnetwork.node import Node, NodeConnection
 from deCoordinated import deCoordinated
 import logging
-from threading import Thread
 from Offer import Chain, Offer
 
 logging.basicConfig(level=logging.INFO)
@@ -46,11 +45,9 @@ class Peer(Node, deCoordinated):
 
 
     def outbound_node_connected(self, connected_node):
-        # print("outbound_node_connected: " + connected_node.id)
         self.on_new_connection_callback(connected_node)
 
     def inbound_node_connected(self, connected_node):
-        # print("inbound_node_connected: " + connected_node.id)
         self.on_new_connection_callback(connected_node)
 
     def inbound_node_disconnected(self, connected_node):
@@ -65,11 +62,9 @@ class Peer(Node, deCoordinated):
 
     def node_disconnect_with_outbound_node(self, connected_node):
         pass
-        # print("node wants to disconnect with oher outbound node: " + connected_node.id)
 
     def node_request_to_stop(self):
         pass
-        # print("node is requested to stop!")
 
     def __get_connection__(self, conn_info):
         l = conn_info.split(":")
@@ -96,7 +91,7 @@ class Peer(Node, deCoordinated):
                 if (connection.host == conn_info[0] and
                     connection.port == conn_info[1]):
                     return connection
-            print("did not find connection")
+            log.error("did not find connection")
         return None
 
     def send(self, recipient, message):
@@ -105,12 +100,10 @@ class Peer(Node, deCoordinated):
     def committed(self, chain):
         game.append(chain)
         print("WOOHOO chain committed!!!")
-        print(chain)
         print("current game:\n", game)
     
     def aborted(self, chain):
         print("BOO chain not committed after all")
-        print(chain)
         print("current game:\n", game)
     
     def respond(self, offer: Offer):
@@ -123,7 +116,7 @@ class Peer(Node, deCoordinated):
             else:
                 self.reject(offer)
         elif offer.state == Offer.State.DECIDING:
-            print("got offers:\n")
+            print("got counters:\n")
             for pid, coffer in offer.counters.items:
                 print(pid)
                 print(coffer)

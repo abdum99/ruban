@@ -2,7 +2,7 @@ from enum import Enum
 from copy import deepcopy
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 class Message:

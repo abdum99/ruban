@@ -123,6 +123,7 @@ class deCoordinated(Trader, ABC):
 
     def host_begin_round_robin(self):
         self.all_participants_joined.set()
+        log.info("Host: sent info to all guests")
 
     
     def is_ready(self):
@@ -177,7 +178,6 @@ class deCoordinated(Trader, ABC):
 
         self.all_participants_acked.wait();
 
-        log.debug("Host: sent list to all guests")
         self.__update_state__(deCoordinated.State.SENT_PARTICIPANTS)
 
         for participant, pid in self.pids.items():
