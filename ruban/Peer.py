@@ -1,7 +1,7 @@
+from ruban.deCoordinated import deCoordinated
+from ruban.Offer import Chain, Offer
 from p2pnetwork.node import Node, NodeConnection
-from deCoordinated import deCoordinated
 import logging
-from Offer import Chain, Offer
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)

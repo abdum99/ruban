@@ -1,5 +1,6 @@
-from Peer import Peer
-from Offer import Action, Chain
+from ruban.Trader import Trader
+from ruban.Peer import Peer
+from ruban.Offer import Action, Chain
 import logging
 
 logging.basicConfig(level=logging.INFO)

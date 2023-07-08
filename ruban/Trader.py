@@ -1,8 +1,9 @@
+from ruban.Offer import Message, Chain, Offer, Action
+
 from abc import ABC, abstractmethod
 from threading import Thread
 from enum import Enum
 import logging
-from Offer import Message, Chain, Offer, Action
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)

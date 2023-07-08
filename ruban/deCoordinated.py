@@ -1,5 +1,5 @@
+from ruban.Trader import Trader
 from abc import ABC, abstractmethod
-from Trader import Trader
 from threading import Thread, Event, Lock
 from time import sleep
 import pickle
