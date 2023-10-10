@@ -6,7 +6,7 @@ Currently it follows a basic round-robin assignment to elect leaders. In the sys
 All participants are mutually distrustful and we use the P2P nature of the system and public-key cryptography to to introduce the concept of Contesting to provide majority-based authenticity and security without a large traffic overhead.
 
 > **Warning**
-> This is a WIP. Please refer to the  [paper](doc/paper/ruban-1_0.pdf) for more info.
+> This is a WIP. Please refer to the  [paper](/doc/paper/ruban-1_0.pdf) for more info.
 
 ## Guarantees
 Ruban provides the following guarantees:
@@ -27,7 +27,7 @@ The system should be easily extensible to other session layer including, e.g., B
 
 ## Running
 > **Warning**
-> This is a WIP. Please refer to the [paper](doc/paper/ruban-1_0.pdf) for more info.
+> This is a WIP. Please refer to the [paper](/doc/paper/ruban-1_0.pdf) for more info.
 
 To install, make sure you have `python3.7+`
 ```
