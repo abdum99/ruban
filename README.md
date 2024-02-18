@@ -22,8 +22,8 @@ The system should be able to gracefully recover from a node failing.
 A malicious player does not cause the game to halt for honest participants.
 - **Proposer Autonomy:**
 The decision for which counter to choose, if more than one is available, belongs to the original proposer.
-- **Architecture Agnositicism:**
-The system should be easily extensible to other session layer including, e.g., Blue- tooth, POSIX Sockets.
+- **Architecture and Protocol Agnositicism:**
+The system should be easily extensible to other session layer including, e.g., Bluetooth, pure POSIX Sockets, MQTT.
 
 ## Running
 > **Warning**
